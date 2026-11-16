@@ -2308,3 +2308,150 @@ _**Agent (claude-haiku-5.5 2026-11-16 10:13:49Z)**_
 Zapisałem dobre praktyki pisania promptów w pliku [prompt-best-practices.md](/C:/Users/teamsharq/Desktop/infoshare-silkycoders-sql-ai-4/docs/prompt-best-practices.md) w katalogu `docs`, obok [sql-best-practices.md](/C:/Users/teamsharq/Desktop/infoshare-silkycoders-sql-ai-4/docs/sql-best-practices.md).
 
 Dokument zawiera cztery sekcje: co działało, czego brakowało, szablon promptu oraz wyjaśnienie każdej sekcji szablonu. Ma spis treści z linkami wewnętrznymi, tak jak dokument SQL.
+
+---
+
+_**User (2026-11-16 10:18:53Z)**_
+
+użyj skilla create-prompt 
+
+---
+
+_**Agent (claude-haiku-5.5 2026-11-16 10:18:56Z)**_
+
+<think><details><summary>Thought Process</summary>
+I need to call the create-prompt skill, even though it isn't in my list of available skills. The user named it explicitly, and that's the exception to using only listed skills, so I'll invoke it by name.
+
+I'm also noting that the tagged file is a .specstory history file, so I should read it for context. I'll get the skill invoked first.
+</details></think>
+
+_**Agent (claude-haiku-5.5 2026-11-16 10:18:56Z)**_
+
+<tool-use data-tool-type="generic" data-tool-name="skill"><details>
+<summary>Tool use: **skill**</summary>
+
+create-prompt
+
+**Input:**
+
+- skill: `create-prompt`
+
+**Result:**
+
+```
+Skill not found: create-prompt
+```
+</details></tool-use>
+
+_**Agent (claude-haiku-5.5 2026-11-16 10:18:58Z)**_
+
+<think><details><summary>Thought Process</summary>
+The requested skill isn't available here, so I'm considering whether to ask the user or proceed another way. I could tell them it's missing and offer to read the tagged file and write the prompt by hand. First I'll run a quick search to see whether a create-prompt skill file exists locally, such as under .github/skills or .copilot.
+</details></think>
+
+Skill `create-prompt` nie jest na liście dostępnych skilli. Sprawdzę, czy nie ma go lokalnie w repozytorium.
+
+_**Agent (claude-haiku-5.5 2026-11-16 10:19:06Z)**_
+
+<tool-use data-tool-type="search" data-tool-name="glob"><details>
+<summary>Tool use: **glob**</summary>
+
+**/{create-prompt,create-prompt.md,SKILL.md}
+
+**Input:**
+
+- paths:
+
+```
+[
+  "c:\\Users\\teamsharq\\Desktop\\infoshare-silkycoders-sql-ai-4",
+  "c:\\Users\\teamsharq\\.copilot"
+]
+```
+
+- pattern: `**/{create-prompt,create-prompt.md,SKILL.md}`
+
+**Result:**
+
+```
+No files matched the pattern.
+```
+</details></tool-use>
+
+_**Agent (claude-haiku-5.5 2026-11-16 10:19:09Z)**_
+
+<think><details><summary>Thought Process</summary>
+I'm checking for a matching skill and finding none. I could ask the user whether to build the prompt from the tagged file myself or wait. Reading the tagged file would also help, but asking with clear options seems better, so I'll do that briefly.
+</details></think>
+
+Nie znalazłem skilla `create-prompt` ani w dostępnych skillach, ani w repozytorium czy w `.copilot`. Zanim zdecyduję, co dalej, muszę zapytać.
+
+_**Agent (claude-haiku-5.5 2026-11-16 10:19:09Z)**_
+
+<tool-use data-tool-type="generic" data-tool-name="ask_user"><details>
+<summary>Tool use: **ask_user**</summary>
+
+Waiting for response
+
+**Input:**
+
+- message: `Skill "create-prompt" nie jest dostępny w tej sesji (nie ma go na liście skilli ani w repozytorium). Jak mam postąpić?`
+- requestedSchema: `{"properties":{"option":{"type":"string","title":"Co zrobić?","description":"Wybierz wariant albo wpisz własny.","oneOf":[{"const":"manual","title":"Utworzę prompt ręcznie, na podstawie szablonu z docs/prompt-best-practices.md i pliku z historii (.specstory)"},{"const":"wait","title":"Zainstaluję/udostępnię skill create-prompt, poczekam i spróbuję ponownie"}],"default":"manual"}},"required":["option"],"type":"object"}}`
+
+**Result:**
+
+```
+"requestedSchema": Expected object, received string
+```
+</details></tool-use>
+
+_**Agent (claude-haiku-5.5 2026-11-16 10:19:20Z)**_
+
+<tool-use data-tool-type="generic" data-tool-name="ask_user"><details>
+<summary>Tool use: **ask_user**</summary>
+
+Waiting for response
+
+**Input:**
+
+- message: `Skill "create-prompt" nie jest dostępny w tej sesji (nie ma go na liście skilli ani w repozytorium). Jak mam postąpić?`
+- requestedSchema:
+
+```
+{
+  "properties": {
+    "option": {
+      "default": "Utworzyć prompt ręcznie na podstawie szablonu z docs/prompt-best-practices.md i pliku z historii (.specstory)",
+      "description": "Wybierz wariant albo wpisz własny.",
+      "enum": [
+        "Utworzyć prompt ręcznie na podstawie szablonu z docs/prompt-best-practices.md i pliku z historii (.specstory)",
+        "Poczekać, aż udostępnisz skill create-prompt, i spróbować ponownie"
+      ],
+      "title": "Co zrobić?",
+      "type": "string"
+    }
+  },
+  "required": [
+    "option"
+  ],
+  "type": "object"
+}
+```
+
+
+**Result:**
+
+```
+User cancelled the request.
+```
+</details></tool-use>
+
+_**Agent (claude-haiku-5.5 2026-11-16 10:19:23Z)**_
+
+Nie mogę użyć skilla `create-prompt`, bo nie jest dostępny w tej sesji. Nie ma go na liście skilli (są tylko `troubleshoot`, `create-canvas`, `typescript-setup` i `typescript-update`) ani w repozytorium czy w `.copilot`.
+
+Mogę zrobić jedną z dwóch rzeczy:
+- **Ręcznie przygotować prompt** na podstawie szablonu z [prompt-best-practices.md](/C:/Users/teamsharq/Desktop/infoshare-silkycoders-sql-ai-4/docs/prompt-best-practices.md) i pliku z historii [2026-11-16_10-10-52Z-napisz-dobre-pratyki-dobrego.md](/C:/Users/teamsharq/Desktop/infoshare-silkycoders-sql-ai-4/.specstory/history/2026-11-16_10-10-52Z-napisz-dobre-pratyki-dobrego.md). Taki prompt mógłby działać jak skill `create-prompt`.
+- **Poczekać**, aż skill zostanie udostępniony w sesji, a potem uruchomić go ponownie.
+
+Napisz, którą opcję wybierasz.
