@@ -66,6 +66,15 @@ Jesteś asystentem inżyniera danych i analityka DWH. Odpowiadasz po polsku. Naz
 - Nie ignoruj kontekstu z wcześniejszych wiadomości.
 - Nie używaj sformułowań „prawdopodobnie”, „być może”, „wydaje mi się” bez wyraźnego oznaczenia niepewności.
 
+# NIEDOZWOLONE ścieżki, pliki i zasoby
+- Nigdy nie czytaj plików w ./specstory/
+- Nie czytaj zgłoszeń w ./inbox/, chyba że użytkownik wyraźnie wskaże wybrany plik lub zgłoszenie.
+- Nie czytaj plików w ./docs/analizy/, chyba że użytkownik wyraźnie wskaże wybrany plik lub analizę.
+- Nie czytaj plików w ./data/ - są one ładowane do bazy i nie powinny być przeglądane przez AI bezpośrednio.
+
+
+
+
 
 ## Język i format
 

@@ -12,54 +12,388 @@ _**User (2026-11-16 14:19:09Z)**_
 
 _**Agent (copilot/claude-haiku-5.5)**_
 
+<think><details><summary>Thought Process</summary>
+Krok 0: ID analizy to `E02` (z tematu zgłoszenia). Krok 1: czytam definicje metryk i powiązane zgłoszenie o zwrotach z `inbox/`.  
+
+**Krok 0 (start):** ID analizy: `E02-sierpien`. Istniejących handoffów nie czytałem, zgodnie z poleceniem. Folder `docs/analizy/E02-sierpien/` utworzę dopiero po kroku 3.
+
+**Krok 1 (wczytanie zgłoszenia):** raport faktów.
+
+**Fakty ze zgłoszenia** [ZGŁ] ([E02- sierpien sie nie spina.md](inbox/E02-%20sierpien%20sie%20nie%20spina.md)):
+- Od: Tomasz Barski, controlling. Do: Zespół analiz. Data: 18 wrz 2026, 16:42.
+- Controlling: sprzedaż netto sierpnia 2026 = 2 608 664,46 zł, z kas i systemu zamówień online.
+- Nasz raport: 2 666 549,81 zł.
+- Różnica: 57 885,35 zł [WNIOSEK, obliczenie].
+- Oczekiwanie: skąd różnica, którą kwotę raportować, odpowiedź „do jutra do południa”, wprost wskazać błąd po naszej stronie.
+
+**Czerwona flaga: termin.** Termin to 19 wrz 2026. Dzisiaj jest 16 lis 2026, więc termin minął [WNIOSEK].
+
+**Definicje** [DOK] ([slownik-metryk.md](docs/slownik-metryk.md)):
+- „Sprzedaż” bez doprecyzowania = sprzedaż netto przed odjęciem zwrotów. Osobna metryka: „Sprzedaż po zwrotach netto”.
+- Słownik opisuje bazę PostgreSQL `retaildw` i ścieżkę `databases/RetailDW-postgres/`. W workspace tej ścieżki nie ma. Jest projekt SQL Server `RetailDW/`.
+
+**Kod** [KOD] ([etl.LoadSales.sql](RetailDW/Procedures/etl.LoadSales.sql), [dbo.FactSales.sql](RetailDW/Tables/dbo.FactSales.sql)):
+- `NetAmount = (Quantity * UnitPrice - DiscountAmount) / 1.23`.
+- Procedura nie deduplikuje wierszy. Kolumna `SourceFile` trafia do staging, ale nie jest używana do filtrowania.
+- Wiersze z błędną konwersją są odrzucane, a wiersze bez dopasowania wymiaru odpadają przez `JOIN`. Liczba odrzuconych trafia do `RowsRejected` w `LoadLog`.
+- `reporting.vw_SalesDaily` i `vw_SalesWeekly` sumują `NetAmount` bez odjęcia zwrotów.
+
+**Powiązane zgłoszenie** [ZGŁ] ([zgłoszenie-częściowych-zwrotów.md](inbox/zgłoszenie-częściowych-zwrotów.md)): zmiana Net Revenue o częściowe zwroty, przy zachowaniu porównywalności historii. Może kolidować z definicją „sprzedaż netto przed zwrotami”. Zmiany definicji nie wprowadzam w trakcie tej analizy.
+
+**Hipotezy, niepotwierdzone** [ZAŁ]: różnica może wynikać z duplikatów w `SourceFile`, odrzuconych wierszy ETL, różnego ujęcia zwrotów albo różnego zakresu kanałów (kasy vs online). Nie sprawdzałem danych ani bazy.
+
+**Nie sprawdzono:** danych CSV, zawartości bazy, rozkładu `SourceFile`. 
+
+Krok 1 zaakceptowany. Raport źródłowy to SQL Server (`RetailDW/`). Przechodzę do kroku 2: sformułowanie problemu.
+
+**Krok 2: sformułowanie problemu** (do akceptacji)
+
+- **Problem:** sprzedaż netto za sierpień 2026 w naszym raporcie (2 666 549,81 zł) różni się od liczby controllingu z kas i systemu online (2 608 664,46 zł). Różnica wynosi 57 885,35 zł [WNIOSEK].
+- **Typ zadania:** rozjazd liczb.
+- **Oczekiwany rezultat wg zgłaszającego:** wyjaśnienie, skąd bierze się różnica, i wskazanie, którą kwotę raportować. Jeśli błąd jest po naszej stronie, napisać to wprost.
+- **Kryterium ukończenia (proponowane):** różnica rozbita na przyczyny z dowodem (zapytanie lub plik), a kwota do raportowania uzgodniona z controllingiem.
+- **Zakres:** sierpień 2026, sprzedaż netto przed zwrotami wg słownika. Zmiany definicji i powiązane zgłoszenie o zwrotach są poza zakresem. 
+
+**Krok 3: co wiemy, co zakładamy, czego nie wiemy.** Zapisałem handoff i progress w [docs/analizy/E02-sierpien/handoff.md](docs/analizy/E02-sierpien/handoff.md) oraz [progress.md](docs/analizy/E02-sierpien/progress.md).
+
+- **Wiemy:** dwie kwoty ze zgłoszenia, sposób liczenia `NetAmount` i brak deduplikacji w ETL [KOD].
+- **Zakładamy:** źródło to SQL Server, a przyczyny różnicy są hipotezami [ZAŁ].
+- **Nie wiemy:** filtrów naszego raportu, ujęcia zwrotów u controllingu, zakresu jego kwoty, nowego terminu. Nie sprawdzono danych ani bazy. 
+
+Krok 6: plan i rekomendacja.
+
+**Plan (etapy):**
+1. Potwierdzić od controllingu definicję zwrotów (przed/po zwrotach) i zakres kwoty 2 608 664,46 zł. Kryterium: obie odpowiedzi w handoffie.
+2. Odtworzyć nasze 2 666 549,81 zł zapytaniem do `reporting.vw_SalesDaily` za sierpień 2026, bez filtrów kanałów. Kryterium: zgodność z kwotą raportu.
+3. Sprawdzić duplikaty: `src.SalesRaw` i `stg.Sales` wg `TransactionNo`, `LineNumber`, `SourceFile`. Kryterium: liczba duplikatów i ich wartość netto.
+4. Sprawdzić odrzucone wiersze w `dbo.LoadLog` oraz wiersze bez dopasowania wymiaru. Kryterium: liczby i wartość netto.
+5. Rozbić różnicę po kanałach `STORE` i `ONLINE`. Kryterium: porównanie z kwotami controllingu per kanał, jeśli je dostaniemy.
+6. Policzyć wartość zwrotów netto za sierpień (`ReturnAmount / 1.23`) i porównać z różnicą. Kryterium: czy różnica jest wyjaśniona przez zwroty.
+7. Zapisać wynik i uzgodnić kwotę do raportowania z controllingiem. Kryterium: odpowiedź wysłana przez analityka.
+
+**Rekomendacja następnego skilla:** [analiza-danych](.github/skills/analiza-danych/SKILL.md), bo to liczba do wyjaśnienia. [analiza-lineage](.github/skills/analiza-lineage/SKILL.md) tylko jeśli pojawi się pytanie o pochodzenie kolumn.
+</details></think>
+
+_**Agent (copilot/claude-haiku-5.5)**_
+
 Zaczynam od wczytania procesu i szablonów skilla. Istniejących handoffów nie otwieram.      
 
 _**Agent (copilot/claude-haiku-5.5)**_
 
-<tool-use data-tool-type="generic" data-tool-name="copilot_readFile"><details>
-<summary>Tool use: **copilot_readFile**</summary>
+<tool-use data-tool-type="read" data-tool-name="read_file"><details>
+<summary>Tool use: **read_file**</summary>
 
 Read skill `analiza-zgloszenia`: `zasady-i-checklisty.md`
+
+**Input:**
+
+- endLine: `300`
+- filePath: `c:\Users\teamsharq\Desktop\infoshare-silkycoders-sql-ai-4\.github\skills\analiza-zgloszenia\references\zasady-i-checklisty.md`
+- startLine: `1`
+
+**Result:**
+
+```
+# Zasady i checklisty: analiza zgłoszenia
+
+## Poziomy dowodu
+Każde stwierdzenie w handoffie i raportach ma znacznik.
+
+| Znacznik | Znaczenie | Przykład |
+| --- | --- | --- |
+| `[ZGŁ]` | Wprost ze zgłoszenia (cytat) | "Sierpień się nie spina" |
+| `[DOK]` | Z dokumentacji w repo | definicja z `docs/slownik-metryk.md` |
+| `[KOD]` | Z kodu lub DDL w repo | treść widoku, procedury, tabeli |
+| `[DB]` | Z wyniku zapytania do bazy | używane w skillach z dostępem do bazy |
+| `[WNIOSEK]` | Interpretacja agenta z podanych dowodów | "to wygląda na ponowny eksport" |
+| `[ZAŁ]` | Założenie do potwierdzenia | "zakładam netto przed zwrotami" |
+
+Zasady:
+- Nie podawaj `[WNIOSEK]` ani `[ZAŁ]` jako faktu. Oznaczaj je wyraźnie.
+- Nie używaj słów "prawdopodobnie", "chyba" bez znacznika niepewności.
+- Wniosek z kodu to nie wynik z bazy. Mów, który jest który.
+
+## Checklista kompletności zgłoszenia
+Zaznacz, czego brakuje, i zamień braki w pytania.
+
+- [ ] Kto zgłasza, z jakiej roli, kiedy.
+- [ ] Jaki problem lub zadanie, własnymi słowami zgłaszającego.
+- [ ] Jaka metryka lub raport, z jaką definicją (przed/po zwrotach, netto/brutto, kanał).
+- [ ] Jaki okres i zakres (sklepy, kanały, kategorie).
+- [ ] Skąd pochodzi liczba zgłaszającego i liczba "nasza" (system, raport, filtry).
+- [ ] Jaka jest oczekiwana forma odpowiedzi (liczba, wyjaśnienie, raport, korekta).
+- [ ] Jaki termin i czy jest aktualny względem dzisiejszej daty.
+- [ ] Jak rozpoznamy, że zadanie jest zrobione (kryterium sukcesu).
+- [ ] Czy są powiązane zgłoszenia lub zmiany w toku.
+- [ ] Czy dane lub odpowiedź zawierają dane osobowe.
+
+## Czerwone flagi
+- **Termin w przeszłości** względem bieżącej daty. Zapytaj o nowy termin.
+- **Dwie definicje tej samej metryki** w repo lub zgłoszeniach (np. zmiana ujęcia zwrotów). Zapytaj, która obowiązuje, i nie zmieniaj definicji w trakcie analizy.
+- **Liczba bez źródła**. Nie porównuj, dopóki nie wiesz, skąd pochodzi.
+- **Prośba o zmianę** w widoku lub ETL 
+… (output truncated)
+```
 </details></tool-use>
 
 _**Agent (copilot/claude-haiku-5.5)**_
 
-<tool-use data-tool-type="generic" data-tool-name="copilot_readFile"><details>
-<summary>Tool use: **copilot_readFile**</summary>
+<tool-use data-tool-type="read" data-tool-name="read_file"><details>
+<summary>Tool use: **read_file**</summary>
 
 Read skill `analiza-zgloszenia`: `kroki-procesu.md`
+
+**Input:**
+
+- endLine: `300`
+- filePath: `c:\Users\teamsharq\Desktop\infoshare-silkycoders-sql-ai-4\.github\skills\analiza-zgloszenia\references\kroki-procesu.md`
+- startLine: `1`
+
+**Result:**
+
+```
+# Kroki procesu: analiza zgłoszenia
+
+Każdy krok kończy się bramką ([protokół interakcji](./protokol-interakcji.md)). Kroki można rozszerzać bez zmiany `SKILL.md`.
+
+## Krok 0. Start
+- Wejście: ścieżka zgłoszenia lub opis od analityka.
+- Ustal `<ID>` analizy (np. numer zgłoszenia + krótki temat: `E02-sierpien`). Jeśli brak oczywistego ID, zapytaj.
+- Sprawdź, czy istnieje `docs/analizy/<ID>/handoff.md`. Jeśli tak: pokaż 3-zdaniowe podsumowanie i zapytaj, czy wznawiamy od "Następny krok".
+- Jeśli nie: utwórz folder i pliki z [handoff-template](../assets/handoff-template.md) i [progress-template](../assets/progress-template.md) dopiero po kroku 3 (gdy znamy problem).
+- Bramka: potwierdź ID i folder.
+
+## Krok 1. Wczytanie zgłoszenia
+- Przeczytaj zgłoszenie w całości. Przeczytaj powiązane pliki z `inbox/` i `docs/` (np. `docs/slownik-metryk.md`, `docs/analiza-bazy.md`), jeśli są wskazane lub oczywiście związane.
+- Wypisz **fakty dosłowne**: nadawca, data, termin, liczby, nazwy raportów, okres, cytat oczekiwania.
+- Wyjście: lista faktów z cytatami (`[ZGŁ]`).
+- Bramka: czy czegoś brakuje lub czy są inne powiązane zgłoszenia?
+
+## Krok 2. Sformułowanie problemu
+- Napisz problem lub zadanie w 1–2 zdaniach. Wskaż typ: rozjazd liczb, nowa metryka, zmiana raportu, błąd danych, pytanie ad hoc, inne.
+- Wskaż oczekiwany rezultat wg zgłaszającego i kryterium ukończenia.
+- Bramka: analityk poprawia sformułowanie. Nie idź dalej bez akceptacji.
+
+## Krok 3. Co wiemy, co zakładamy, czego nie wiemy
+- Tabela: stwierdzenie / poziom dowodu / źródło / status (wiemy, założenie, brak).
+- Sprawdź w repo to, co da się ustalić bez pytania: definicje metryk, DDL, widoki. Podaj plik.
+- Dopiero teraz utwórz `handoff.md` i `progress.md`.
+- Bramka: czy zgadzamy się z podziałem? Co przenieść między kolumnami?
+
+## Krok 4. Pytania
+- Podziel na: (a) pytania do analityka (zadaj od razu przez `vscode_askQuestions`), (b) pytania do zgłaszającego (szkic wg [pytania-doprecyzowujace-te
+… (output truncated)
+```
 </details></tool-use>
 
 _**Agent (copilot/claude-haiku-5.5)**_
 
-<tool-use data-tool-type="generic" data-tool-name="copilot_readFile"><details>
-<summary>Tool use: **copilot_readFile**</summary>
+<tool-use data-tool-type="read" data-tool-name="read_file"><details>
+<summary>Tool use: **read_file**</summary>
 
 Read skill `analiza-zgloszenia`: `protokol-interakcji.md`
+
+**Input:**
+
+- endLine: `300`
+- filePath: `c:\Users\teamsharq\Desktop\infoshare-silkycoders-sql-ai-4\.github\skills\analiza-zgloszenia\references\protokol-interakcji.md`
+- startLine: `1`
+
+**Result:**
+
+```
+# Protokół interakcji
+
+Cel: analityk w każdej chwili wie, co robi agent, i może zmienić kurs. Obowiązuje w każdym kroku.
+
+## Pętla kroku
+1. **Zapowiedź** (przed działaniem), 1–3 zdania: cel kroku, co zrobię, co to potwierdzi lub zmieni.
+2. **Działanie**: jedna rzecz naraz (jedno ustalenie, jeden dokument).
+3. **Raport kroku** w stałym formacie:
+   - **Co zrobiłem**
+   - **Wynik** (mała tabela)
+   - **Co to znaczy** (ze znacznikiem dowodu)
+   - **Co wiemy / co jest niejasne**
+4. **Zapis**: dopisz do `progress.md`. Decyzje i pytania dopisz do `handoff.md`.
+5. **Bramka**: `vscode_askQuestions`.
+
+Kroki czysto przygotowawcze (np. przeczytanie kilku plików) można łączyć w jeden krok z jednym raportem.
+
+## Bramka
+Opcje dopasuj do kroku, nie używaj ogólników. Nagłówek (`header`) unikalny, np. `krok_3`.
+
+Typowy zestaw:
+- **Idziemy dalej** (rekomendowane)
+- **Zmieniamy plan** (analityk poda uwagę)
+- **Dopytaj / pokaż szczegóły**
+- **Wstrzymaj**
+
+## Obsługa odpowiedzi
+- Wybrana opcja: wykonaj.
+- **Tekst wolny jest poleceniem lub korektą**, nie zgodą na dalej. Najpierw wykonaj, co napisano. Jeśli to pytanie ("czy z kodu, czy z bazy?"), odpowiedz wprost i ponów bramkę.
+- Brak wyboru i brak tekstu: zapytaj krócej jeszcze raz. Nie zakładaj zgody.
+- Krok pominięty przez analityka: zapisz w handoffie jako ryzyko ("nie sprawdzono: ...").
+- Uwaga analityka zmienia plan: zaktualizuj plan w handoffie i potwierdź zmianę.
+
+## Komunikacja
+- Po polsku, krótko, tabele zamiast długich akapitów.
+- Zawsze mów, skąd jest informacja (znacznik dowodu).
+- Mów wprost, czego nie sprawdzono.
+- Nie wykonuj kilku kroków pod rząd bez bramki.
+
+## Wznowienie
+Na początku czytaj `handoff.md` i `progress.md`. Pokaż 3 zdania podsumowania i zapytaj, czy kontynuować od "Następny krok".
+```
 </details></tool-use>
 
 _**Agent (copilot/claude-haiku-5.5)**_
 
-<tool-use data-tool-type="generic" data-tool-name="copilot_readFile"><details>
-<summary>Tool use: **copilot_readFile**</summary>
+<tool-use data-tool-type="read" data-tool-name="read_file"><details>
+<summary>Tool use: **read_file**</summary>
 
 Read skill `analiza-zgloszenia`: `handoff-template.md`
+
+**Input:**
+
+- endLine: `300`
+- filePath: `c:\Users\teamsharq\Desktop\infoshare-silkycoders-sql-ai-4\.github\skills\analiza-zgloszenia\assets\handoff-template.md`
+- startLine: `1`
+
+**Result:**
+
+```
+# Handoff: <temat> (<ID>)
+
+> Ostatnia aktualizacja: <data> | Ostatni skill: <analiza-zgloszenia / analiza-danych / analiza-lineage> | Status: <w toku / wstrzymane / zamknięte>
+
+## 1. Cel
+<Problem lub zadanie w 1–2 zdaniach. Kryterium ukończenia.>
+
+## 2. Źródło zgłoszenia
+- Plik / wiadomość: <ścieżka>
+- Od / do / data: <...>
+- Termin: <data> (aktualny: tak/nie)
+- Powiązane: <pliki, zgłoszenia>
+
+## 3. Kontekst i definicje
+| Element | Wartość | Dowód |
+| --- | --- | --- |
+| Metryka | <np. sprzedaż netto przed zwrotami> | `[DOK]` |
+| Okres | <...> | `[ZGŁ]` |
+| Zakres | <sklepy, kanały> | `[ZGŁ]` |
+| Raport / źródło liczby | <widok, plik> | `[...]` |
+
+## 4. Co wiemy
+| # | Stwierdzenie | Dowód | Źródło |
+| --- | --- | --- | --- |
+| 1 | <...> | `[ZGŁ]` | <plik / zapytanie Q01> |
+
+## 5. Decyzje
+| Data | Decyzja | Kto zaakceptował |
+| --- | --- | --- |
+| <data> | <np. zgoda na zapytania SELECT w sesji> | <analityk> |
+
+## 6. Otwarte pytania
+- [ ] (blokujące) <pytanie> | do kogo: <...> | po co: <...>
+- [ ] (niekrytyczne) <pytanie>
+
+## 7. Ryzyka i zastrzeżenia
+- <np. nie sprawdzono innych miesięcy>
+
+## 8. Następny krok
+<Jeden konkretny krok, który pozwala nowemu agentowi zacząć bez czytania czatu. Wskaż skill, etap i plik.>
+
+## 9. Pliki analizy
+- [progress.md](./progress.md)
+- <zapytania.sql, raport.md, lineage.md, diagramy>
+```
 </details></tool-use>
 
 _**Agent (copilot/claude-haiku-5.5)**_
 
-<tool-use data-tool-type="generic" data-tool-name="copilot_readFile"><details>
-<summary>Tool use: **copilot_readFile**</summary>
+<tool-use data-tool-type="read" data-tool-name="read_file"><details>
+<summary>Tool use: **read_file**</summary>
 
 Read skill `analiza-zgloszenia`: `progress-template.md`
+
+**Input:**
+
+- endLine: `300`
+- filePath: `c:\Users\teamsharq\Desktop\infoshare-silkycoders-sql-ai-4\.github\skills\analiza-zgloszenia\assets\progress-template.md`
+- startLine: `1`
+
+**Result:**
+
+```
+# Progress: <temat> (<ID>)
+
+> Aktualizuj po każdym kroku. Statusy: `not-started`, `in-progress`, `completed`, `blocked`.
+
+## Status etapów
+| Etap | Status | Data | Uwagi |
+| --- | --- | --- | --- |
+| 1. <nazwa etapu> | not-started | | |
+
+## Rejestr znalezisk
+| Data | Etap | Znalezisko | Wynik / kwota | Dowód | Źródło (ID zapytania / plik) |
+| --- | --- | --- | --- | --- | --- |
+| <data> | 1 | <...> | <...> | `[DB]` | Q01 |
+
+## Rejestr zapytań
+Pełny SQL w [zapytania.sql](./zapytania.sql). Tu tylko indeks.
+
+| ID | Etap / krok | Cel | Wynik w skrócie | Wykonano |
+| --- | --- | --- | --- | --- |
+| Q01 | 2 / krok 3 | <...> | <...> | <data> |
+
+## Dziennik kroków
+| Data | Krok | Co zrobiono | Decyzja analityka |
+| --- | --- | --- | --- |
+| <data> | <nr> | <...> | <idziemy dalej / zmiana: ...> |
+
+## Notatki agenta
+- <obserwacje, które nie są jeszcze wnioskiem>
+```
 </details></tool-use>
 
 _**Agent (copilot/claude-haiku-5.5)**_
 
-<tool-use data-tool-type="generic" data-tool-name="copilot_readFile"><details>
-<summary>Tool use: **copilot_readFile**</summary>
+<tool-use data-tool-type="read" data-tool-name="read_file"><details>
+<summary>Tool use: **read_file**</summary>
 
 Read skill `analiza-zgloszenia`: `pytania-doprecyzowujace-template.md`
+
+**Input:**
+
+- endLine: `300`
+- filePath: `c:\Users\teamsharq\Desktop\infoshare-silkycoders-sql-ai-4\.github\skills\analiza-zgloszenia\assets\pytania-doprecyzowujace-template.md`
+- startLine: `1`
+
+**Result:**
+
+```
+# Pytania doprecyzowujące do zgłaszającego (szkic, niewysłany)
+
+> Zgłoszenie: <ID / plik> | Do: <osoba> | Przygotowano: <data>
+
+Dzień dobry <imię>,
+
+dziękuję za zgłoszenie. Żeby je rzetelnie sprawdzić, potrzebujemy kilku informacji:
+
+**Potrzebne do rozpoczęcia**
+1. <pytanie blokujące> (po co: <powód>)
+2. <pytanie blokujące>
+
+**Pomocne, niekrytyczne**
+3. <pytanie>
+
+**Co już ustaliliśmy po naszej stronie**
+- <fakt 1 z dowodem>
+
+**Termin**: <proponowany termin odpowiedzi lub pytanie o aktualny termin>
+
+Pozdrawiam
+```
 </details></tool-use>
 
 _**Agent (copilot/claude-haiku-5.5)**_
@@ -68,18 +402,79 @@ Krok 0: ID analizy to `E02` (z tematu zgłoszenia). Krok 1: czytam definicje met
 
 _**Agent (copilot/claude-haiku-5.5)**_
 
-<tool-use data-tool-type="generic" data-tool-name="copilot_readFile"><details>
-<summary>Tool use: **copilot_readFile**</summary>
+<tool-use data-tool-type="read" data-tool-name="read_file"><details>
+<summary>Tool use: **read_file**</summary>
 
 Read `slownik-metryk.md`
+
+**Input:**
+
+- endLine: `300`
+- filePath: `c:\Users\teamsharq\Desktop\infoshare-silkycoders-sql-ai-4\docs\slownik-metryk.md`
+- startLine: `1`
+
+**Result:**
+
+```
+# Słownik metryk Nordvik
+
+Definicje używane w raportach sprzedaży, rentowności i zapasu. Kwoty podajemy w PLN, a udziały i dynamiki w procentach. Metryki liczymy dla wskazanego okresu i przekroju; jeśli w mianowniku jest zero, wynik wskaźnika pozostaje pusty.
+
+Nazwy w kolumnie „Źródło” dotyczą bazy PostgreSQL `retaildw` (`databases/RetailDW-postgres/`): wymiary i fakty są w schemacie `dw`, widoki raportowe w `reporting`. Dawne nazwy z SQL Server (`dbo.FactSales` itd.) są zebrane w sekcji „Mapowanie nazw” na końcu.
+
+## Sprzedaż
+
+| Metryka | Definicja | Źródło |
+| --- | --- | --- |
+| **Sprzedaż brutto** | Wartość sprzedanego towaru z VAT, po rabacie. | `fact_sales.gross_amount` |
+| **Rabat** | Kwota obniżki udzielonej na pozycjach sprzedaży. | `fact_sales.discount_amount` |
+| **Sprzedaż netto** | Sprzedaż brutto bez VAT; dla odzieży obowiązuje 23% VAT. | `fact_sales.net_amount` |
+| **Sztuki** | Liczba sprzedanych sztuk. | `fact_sales.quantity` |
+| **Wartość przed rabatem** | Wartość towaru według ceny sprzedaży przed obniżką, z VAT. | `SUM(fact_sales.quantity * fact_sales.unit_price)` |
+| **Stopa rabatu** | Rabat / wartość przed rabatem. | `fact_sales` |
+| **Średnia cena netto sztuki** | Sprzedaż netto / sztuki. | `fact_sales` |
+| **Udział kanału w sprzedaży** | Sprzedaż netto kanału / sprzedaż netto wszystkich kanałów w tym samym okresie. | `fact_sales` + `dim_store.channel` |
+| **Zmiana sprzedaży tydzień do tygodnia** | (Sprzedaż netto bieżącego pełnego tygodnia − sprzedaż netto poprzedniego pełnego tygodnia) / sprzedaż netto poprzedniego tygodnia; oba tygodnie w tym samym przekroju. | `fact_sales` + `dim_date` |
+| **Sprzedaż po zwrotach netto** | Sprzedaż netto − wartość zwrotów bez VAT przyjętych w tym okresie. | `fact_sales.net_amount`, `fact_returns.return_amount` |
+| **Aktywne SKU** | Liczba różnych SKU sprzedanych w okresie. | `fact_sales.product_key` |
+| **Sztuki na aktywne SKU** | Sztuki / liczba aktywnych SKU. | `fact_sales` |
+
+W rapo
+… (output truncated)
+```
 </details></tool-use>
 
 _**Agent (copilot/claude-haiku-5.5)**_
 
-<tool-use data-tool-type="generic" data-tool-name="copilot_readFile"><details>
-<summary>Tool use: **copilot_readFile**</summary>
+<tool-use data-tool-type="read" data-tool-name="read_file"><details>
+<summary>Tool use: **read_file**</summary>
 
 Read `zgłoszenie-częściowych-zwrotów.md`
+
+**Input:**
+
+- endLine: `300`
+- filePath: `c:\Users\teamsharq\Desktop\infoshare-silkycoders-sql-ai-4\inbox\zgłoszenie-częściowych-zwrotów.md`
+- startLine: `1`
+
+**Result:**
+
+```
+# Zgłoszenie zmiany: częściowe zwroty
+
+**Od:** Właścicielka raportowania przychodów  
+**Do:** Zespół hurtowni danych  
+**Temat:** Zwroty w Net Revenue
+
+Dzień dobry,
+
+Chcemy uwzględniać częściowe zwroty pozycji w Net Revenue. Historyczne raporty powinny pozostać porównywalne.
+
+Proszę pomóc ustalić, jakie decyzje biznesowe i informacje o źródle są jeszcze potrzebne przed wyborem rozwiązania.
+
+Pozdrawiam,  
+Właścicielka raportowania przychodów
+```
 </details></tool-use>
 
 _**Agent (copilot/claude-haiku-5.5)**_
@@ -88,18 +483,139 @@ Krok 1 zebrał fakty z inboxu i słownika. Przed raportem sprawdzam w repo defin
 
 _**Agent (copilot/claude-haiku-5.5)**_
 
-<tool-use data-tool-type="generic" data-tool-name="copilot_findTextInFiles"><details>
-<summary>Tool use: **copilot_findTextInFiles**</summary>
+<tool-use data-tool-type="search" data-tool-name="grep_search"><details>
+<summary>Tool use: **grep_search**</summary>
 
 Searched for regex `net_amount|NetAmount|return_amount|ReturnAmount|1\.23|1.23|Net` (`**/RetailDW/**`), 31 results
+
+**Input:**
+
+- includePattern: `RetailDW/**`
+- isRegexp: `true`
+- maxResults: `60`
+- query: `net_amount|NetAmount|return_amount|ReturnAmount|1\.23|1.23|Net`
+
+**Result:**
+
+```
+Found 31 matches in 12 files for "net_amount|NetAmount|return_amount|ReturnAmount|1\.23|1.23|Net"
+
+RetailDW/Procedures/etl.LoadReturns.sql
+28:             [Quantity], [ReturnAmount], [ReturnReason], [SourceFile], [LoadId])
+35:                TRY_CAST(r.[ReturnAmount] AS DECIMAL (10, 2)),
+46:            AND TRY_CAST(r.[ReturnAmount] AS DECIMAL (10, 2)) IS NOT NULL;
+50:             [Quantity], [ReturnAmount], [ReturnReason], [LoadId])
+57:                t.[ReturnAmount],
+
+RetailDW/Procedures/etl.LoadSales.sql
+55:             [Quantity], [UnitPrice], [DiscountAmount], [GrossAmount], [NetAmount],
+66:                CAST((s.[Quantity] * s.[UnitPrice] - s.[DiscountAmount]) / 1.23 AS DECIMAL (12, 2)),
+
+RetailDW/Scripts/Seed/02-DimStore.sql
+14:        (N'S-ONL-01', N'Sklep internetowy',     N'-',        N'Online',        N'ONLINE', N'E-commerce',   NULL, '2015-01-01', NULL);
+
+RetailDW/Tables/dbo.FactReturns.sql
+4:    [ReturnAmount] is the refunded amount, VAT included, and is stored as a
+16:    [ReturnAmount]  DECIMAL (12, 2) NOT NULL,
+28:    INCLUDE ([ProductKey], [StoreKey], [Quantity], [ReturnAmount]);
+
+RetailDW/Tables/dbo.FactSales.sql
+6:    [NetAmount]   = [GrossAmount] / 1.23, VAT excluded.
+22:    [NetAmount]      DECIMAL (12, 2) NOT NULL,
+34:    INCLUDE ([ProductKey], [StoreKey], [Quantity], [GrossAmount], [NetAmount]);
+
+RetailDW/Tables/src.ReturnsRaw.sql
+14:    [ReturnAmount]  NVARCHAR (20)  NULL,
+
+RetailDW/Tables/stg.Returns.sql
+14:    [ReturnAmount]  DECIMAL (10, 2) NOT NULL,
+
+RetailDW/Views/reporting.vw_MarginAnalysis.sql
+14:        SUM(f.[NetAmount])                  AS [NetRevenue],
+16:        SUM(f.[NetAmount]) - SUM(f.[Quantity] * f.[UnitCost]) AS [GrossMargin],
+17:        CASE WHEN SUM(f.[NetAmount]) = 0 THEN NULL
+18:             ELSE CAST(100.0 * (SUM(f.[NetAmount]) - SUM(f.[Quantity] * f.[UnitCost]))
+19:                       / SUM(f.[NetAmount]) AS DECIMAL (5, 2))
+
+RetailDW/Views/reporting.vw_ProductPerformance.sql
+27:            SUM(f.[NetAmount]) AS [Ne
+… (output truncated)
+```
 </details></tool-use>
 
 _**Agent (copilot/claude-haiku-5.5)**_
 
-<tool-use data-tool-type="generic" data-tool-name="copilot_readFile"><details>
-<summary>Tool use: **copilot_readFile**</summary>
+<tool-use data-tool-type="read" data-tool-name="read_file"><details>
+<summary>Tool use: **read_file**</summary>
 
 Read `manifest.json`
+
+**Input:**
+
+- endLine: `200`
+- filePath: `c:\Users\teamsharq\Desktop\infoshare-silkycoders-sql-ai-4\data\P0\manifest.json`
+- startLine: `1`
+
+**Result:**
+
+```
+{
+  "pack": "P0",
+  "contract": "raw-v1",
+  "files": [
+    {
+      "path": "sales.csv",
+      "table": "src.SalesRaw",
+      "contract": "sales-raw-v1",
+      "rows": 191225,
+      "sha256": "a9dd8923b8c8cc7b617d3948ba1918e7d68f54e369e986a004694ecd6e5da4ec",
+      "columns": [
+        "TransactionNo",
+        "LineNumber",
+        "SalesDate",
+        "SKU",
+        "StoreCode",
+        "Quantity",
+        "UnitPrice",
+        "DiscountAmount",
+        "SourceFile"
+      ]
+    },
+    {
+      "path": "inventory.csv",
+      "table": "src.InventoryRaw",
+      "contract": "inventory-raw-v1",
+      "rows": 82956,
+      "sha256": "4f441b0a53417adabaabadbc44129183b810a06d2059d0df77191a5d077979ea",
+      "columns": [
+        "SnapshotDate",
+        "SKU",
+        "StoreCode",
+        "StockQuantity",
+        "SourceFile"
+      ]
+    },
+    {
+      "path": "returns.csv",
+      "table": "src.ReturnsRaw",
+      "contract": "returns-raw-v1",
+      "rows": 13750,
+      "sha256": "2c2cc36e2b3e0b675eb28dbbf9b3de02fd950d9ad0bae59cdc0bac3f64846218",
+      "columns": [
+        "ReturnNo",
+        "TransactionNo",
+        "ReturnDate",
+        "SKU",
+        "StoreCode",
+        "Quantity",
+        "ReturnAmount",
+        "ReturnReason",
+        "SourceFile"
+      ]
+    }
+  ]
+}
+```
 </details></tool-use>
 
 _**Agent (copilot/claude-haiku-5.5)**_
@@ -108,18 +624,101 @@ Widzę, że `sales.csv` ma kolumnę `SourceFile`, a słownik wspomina o dublowan
 
 _**Agent (copilot/claude-haiku-5.5)**_
 
-<tool-use data-tool-type="generic" data-tool-name="copilot_readFile"><details>
-<summary>Tool use: **copilot_readFile**</summary>
+<tool-use data-tool-type="read" data-tool-name="read_file"><details>
+<summary>Tool use: **read_file**</summary>
 
 Read `etl.LoadSales.sql`, lines 1 to 90
+
+**Input:**
+
+- endLine: `90`
+- filePath: `c:\Users\teamsharq\Desktop\infoshare-silkycoders-sql-ai-4\RetailDW\Procedures\etl.LoadSales.sql`
+- startLine: `1`
+
+**Result:**
+
+```
+/*
+    Loads sales from the landing zone into the warehouse.
+
+    Step 1: [src].[SalesRaw] -> [stg].[Sales]      (type conversion, validation)
+    Step 2: [stg].[Sales]    -> [dbo].[FactSales]  (dimension lookup, measures)
+
+    Full reload: both targets are truncated first, so the procedure can be
+    re-run at any time and always reflects the current content of the landing
+    zone.
+*/
+CREATE PROCEDURE [etl].[LoadSales]
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    DECLARE @LoadId INT, @RowsRead INT, @RowsLoaded INT, @RowsRejected INT;
+
+    INSERT INTO [dbo].[LoadLog] ([PackageName]) VALUES (N'etl.LoadSales');
+    SET @LoadId = CAST(SCOPE_IDENTITY() AS INT);
+
+    BEGIN TRY
+        SELECT @RowsRead = COUNT(*) FROM [src].[SalesRaw];
+
+        DELETE FROM [dbo].[FactSales];
+        DELETE FROM [stg].[Sales];
+
+        -- Step 1: convert text to typed columns. A row that cannot be converted
+        -- is dropped here and shows up in the rejected count below.
+        INSERT INTO [stg].[Sales]
+            ([TransactionNo], [LineNumber], [SalesDate], [SKU], [StoreCode],
+             [Quantity], [UnitPrice], [DiscountAmount], [SourceFile], [LoadId])
+        SELECT  r.[TransactionNo],
+                TRY_CAST(r.[LineNumber] AS INT),
+                TRY_CAST(r.[SalesDate] AS DATE),
+                r.[SKU],
+                r.[StoreCode],
+                TRY_CAST(r.[Quantity] AS INT),
+                TRY_CAST(r.[UnitPrice] AS DECIMAL (10, 2)),
+                ISNULL(TRY_CAST(r.[DiscountAmount] AS DECIMAL (10, 2)), 0),
+                r.[SourceFile],
+                @LoadId
+        FROM    [src].[SalesRaw] AS r
+        WHERE   r.[TransactionNo]                       IS NOT NULL
+            AND TRY_CAST(r.[LineNumber]    AS INT)          IS NOT NULL
+            AND TRY_CAST(r.[SalesDate] AS DATE)         IS NOT NULL
+            AND r.[SKU]                                 IS NOT NULL
+            AND r.[StoreCode]            
+… (output truncated)
+```
 </details></tool-use>
 
 _**Agent (copilot/claude-haiku-5.5)**_
 
-<tool-use data-tool-type="generic" data-tool-name="copilot_readFile"><details>
-<summary>Tool use: **copilot_readFile**</summary>
+<tool-use data-tool-type="read" data-tool-name="read_file"><details>
+<summary>Tool use: **read_file**</summary>
 
 Read `dbo.FactSales.sql`, lines 1 to 12
+
+**Input:**
+
+- endLine: `12`
+- filePath: `c:\Users\teamsharq\Desktop\infoshare-silkycoders-sql-ai-4\RetailDW\Tables\dbo.FactSales.sql`
+- startLine: `1`
+
+**Result:**
+
+```
+/*
+    Sales fact. Grain: one row per sold line of a transaction
+    (one SKU within one receipt).
+
+    [GrossAmount] = [Quantity] * [UnitPrice] - [DiscountAmount], VAT included.
+    [NetAmount]   = [GrossAmount] / 1.23, VAT excluded.
+    [UnitCost]    is copied from the product dimension at load time so that
+                  margin can be recalculated without re-joining the dimension.
+*/
+CREATE TABLE [dbo].[FactSales]
+(
+    [SalesKey]       BIGINT          IDENTITY (1, 1) NOT NULL,
+```
 </details></tool-use>
 
 _**Agent (copilot/claude-haiku-5.5)**_
@@ -159,6 +758,55 @@ _**Agent (copilot/claude-haiku-5.5)**_
 <summary>Tool use: **vscode_askQuestions**</summary>
 
 Analyzing your answers...
+
+**Input:**
+
+- questions:
+
+```
+[
+  {
+    "allowFreeformInput": true,
+    "header": "krok_1",
+    "options": [
+      {
+        "label": "Idziemy dalej (rekomendowane)",
+        "recommended": true
+      },
+      {
+        "label": "Dopytaj / pokaż szczegóły"
+      },
+      {
+        "label": "Wstrzymaj"
+      }
+    ],
+    "question": "Krok 1: czy wczytanie zgłoszenia jest kompletne i idziemy do sformułowania problemu (krok 2)?"
+  },
+  {
+    "allowFreeformInput": true,
+    "header": "zrodlo_raportu",
+    "options": [
+      {
+        "label": "SQL Server (RetailDW/)"
+      },
+      {
+        "label": "PostgreSQL retaildw"
+      },
+      {
+        "label": "Nie wiem"
+      }
+    ],
+    "question": "Z jakiej bazy pochodzi nasz raport 2 666 549,81 zł: SQL Server (RetailDW/) czy PostgreSQL retaildw (opisany w słowniku)?"
+  }
+]
+```
+
+
+**Result:**
+
+```
+{"answers":{"krok_1":{"selected":["Idziemy dalej (rekomendowane)"],"freeText":null,"skipped":false},"zrodlo_raportu":{"selected":["SQL Server (RetailDW/)"],"freeText":null,"skipped":false}}}
+```
 </details></tool-use>
 
 _**Agent (copilot/claude-haiku-5.5)**_
@@ -179,6 +827,39 @@ _**Agent (copilot/claude-haiku-5.5)**_
 <summary>Tool use: **vscode_askQuestions**</summary>
 
 Analyzing your answers...
+
+**Input:**
+
+- questions:
+
+```
+[
+  {
+    "allowFreeformInput": true,
+    "header": "krok_2",
+    "options": [
+      {
+        "label": "Akceptuj sformułowanie (rekomendowane)",
+        "recommended": true
+      },
+      {
+        "label": "Zmieniam sformułowanie (podaj uwagę)"
+      },
+      {
+        "label": "Wstrzymaj"
+      }
+    ],
+    "question": "Krok 2: czy akceptujesz sformułowanie problemu i kryterium ukończenia?"
+  }
+]
+```
+
+
+**Result:**
+
+```
+{"answers":{"krok_2":{"selected":["Akceptuj sformułowanie (rekomendowane)"],"freeText":null,"skipped":false}}}
+```
 </details></tool-use>
 
 _**Agent (copilot/claude-haiku-5.5)**_
@@ -187,18 +868,163 @@ Krok 2 zaakceptowany. Krok 3: podział na to, co wiemy, co zakładamy i czego ni
 
 _**Agent (copilot/claude-haiku-5.5)**_
 
-<tool-use data-tool-type="generic" data-tool-name="copilot_createFile"><details>
-<summary>Tool use: **copilot_createFile**</summary>
+<tool-use data-tool-type="write" data-tool-name="create_file"><details>
+<summary>Tool use: **create_file**</summary>
 
 Created `handoff.md`
+
+**Input:**
+
+- content:
+
+```
+# Handoff: Rozjazd sprzedaży netto sierpień 2026 (E02-sierpien)
+
+> Ostatnia aktualizacja: 2026-11-16 | Ostatni skill: analiza-zgloszenia | Status: w toku
+
+## 1. Cel
+Wyjaśnić różnicę 57 885,35 zł [WNIOSEK] między sprzedażą netto za sierpień 2026 wg controllingu (2 608 664,46 zł, kasy + online) a naszym raportem (2 666 549,81 zł) i ustalić, którą kwotę raportować.
+Kryterium ukończenia: różnica rozbita na przyczyny z dowodem (zapytanie lub plik), a kwota do raportowania uzgodniona z controllingiem.
+
+## 2. Źródło zgłoszenia
+- Plik / wiadomość: [inbox/E02- sierpien sie nie spina.md](../../../inbox/E02-%20sierpien%20sie%20nie%20spina.md)
+- Od / do / data: Tomasz Barski (controlling) / Zespół analiz / 18 wrz 2026, 16:42
+- Termin: 19 wrz 2026, "do jutra do południa" (aktualny: nie, minął 2026-11-16)
+- Powiązane: [inbox/zgłoszenie-częściowych-zwrotów.md](../../../inbox/zgłoszenie-częściowych-zwrotów.md) (zmiana Net Revenue o częściowe zwroty; poza zakresem, nie zmieniamy definicji w tej analizie)
+
+## 3. Kontekst i definicje
+| Element | Wartość | Dowód |
+| --- | --- | --- |
+| Metryka | Sprzedaż netto = suma `NetAmount`, przed zwrotami | `[DOK]` [slownik-metryk.md](../../slownik-metryk.md) |
+| Okres | Sierpień 2026 | `[ZGŁ]` |
+| Zakres | Kasy i system zamówień online (kanały `STORE`, `ONLINE`) | `[ZGŁ]` |
+| Raport / źródło liczby | `reporting.vw_SalesDaily`, `reporting.vw_SalesWeekly` (SQL Server, `RetailDW/`) | `[KOD]` |
+| Wyliczenie NetAmount | `(Quantity * UnitPrice - DiscountAmount) / 1.23` | `[KOD]` [etl.LoadSales.sql](../../../RetailDW/Procedures/etl.LoadSales.sql) |
+| Źródło danych | `sales.csv`, 191 225 wierszy, kolumna `SourceFile` | `[DOK]` [manifest.json](../../../data/P0/manifest.json) |
+
+Uwaga: [slownik-metryk.md](../../slownik-metryk.md) opisuje bazę PostgreSQL `retaildw`, a w workspace jest SQL Server. Zakładam SQL Server (potwierdzone przez analityka) [ZAŁ, do potwierdzenia przy kolejnym kroku].
+
+## 4. Co wiemy
+| # | Stwierdzenie | Dowód | Źródło |
+| --- | --- | --- | --- |
+| 1 | Controlling: 2 608 664,46 zł netto za sierpień 2026 | `[ZGŁ]` | inbox/E02 |
+| 2 | Nasz raport: 2 666 549,81 zł | `[ZGŁ]` | inbox/E02 |
+| 3 | Różnica 57 885,35 zł (nasz raport wyższy) | `[WNIOSEK]` (obliczenie) | pkt 1–2 |
+| 4 | Sprzedaż netto w raporcie to suma `NetAmount` bez odjęcia zwrotów | `[KOD]` | vw_SalesDaily / vw_SalesWeekly |
+| 5 | ETL `etl.LoadSales` nie deduplikuje wierszy; `SourceFile` nie jest filtrem | `[KOD]` | etl.LoadSales.sql |
+| 6 | ETL odrzuca wiersze z błędną konwersją i bez dopasowania wymiaru (`JOIN`); liczba w `LoadLog.RowsRejected` | `[KOD]` | etl.LoadSales.sql |
+| 7 | ETL działa jako pełne przeładowanie (truncate + load) | `[KOD]` | etl.LoadSales.sql |
+| 8 | Słownik i repo opisują różne bazy (PostgreSQL vs SQL Server) | `[DOK]` + `[KOD]` | slownik-metryk.md, RetailDW/ |
+
+## 5. Decyzje
+| Data | Decyzja | Kto zaakceptował |
+| --- | --- | --- |
+| 2026-11-16 | Źródło raportu: SQL Server (`RetailDW/`) | Analityk |
+| 2026-11-16 | Sformułowanie problemu i kryterium ukończenia (krok 2) | Analityk |
+| 2026-11-16 | Nie czytamy ani nie używamy istniejących handoffów E02 (`docs/handoff-E02-sierpien.md`); analiza od nowa | Analityk |
+| 2026-11-16 | Nie zmieniamy definicji sprzedaży w trakcie analizy | Zasada z zasady-i-checklisty |
+
+## 6. Otwarte pytania
+- [ ] (blokujące) Jakie filtry i zakres ma nasz raport (wszystkie kanały, wszystkie sklepy, czy sierpień wg `dim_date` albo `DateKey`)? | do: analityk | po co: odtworzenie liczby 2 666 549,81 zł
+- [ ] (blokujące) Czy controlling liczy sprzedaż netto przed czy po zwrotach? | do: controlling (T. Barski) | po co: wykluczenie różnicy w definicji
+- [ ] (blokujące) Czy kwota 2 608 664,46 zł obejmuje wszystkie kasy i cały online, czy tylko część? | do: controlling | po co: porównanie zakresu
+- [ ] (blokujące) Nowy termin odpowiedzi (poprzedni minął). | do: controlling | po co: plan pracy
+- [ ] (niekrytyczne) Czy controlling ma wykaz paragonów lub plik z kas, którym można porównać liczby? | do: controlling | po co: zejście do poziomu transakcji
+
+## 7. Ryzyka i zastrzeżenia
+- Termin minął (19 wrz 2026). Odpowiedź wymaga nowego terminu.
+- Możliwe przyczyny różnicy [ZAŁ], niepotwierdzone: duplikaty wierszy (brak deduplikacji, `SourceFile`); wiersze odrzucone przez ETL lub bez dopasowania wymiaru; różnica w ujęciu zwrotów; różnica w zakresie kanałów (kasy vs online).
+- Nie sprawdzono danych CSV, zawartości bazy ani rozkładu `SourceFile`. Wnioski z kodu nie są wynikiem z bazy.
+- Powiązane zgłoszenie o częściowych zwrotach może zmienić definicję sprzedaży netto. Nie zmieniamy definicji w tej analizie.
+- Słownik opisuje PostgreSQL, repo ma SQL Server. Przed porównaniem trzeba potwierdzić, który system jest źródłem.
+
+## 8. Następny krok
+Krok 4 (pytania) wg [kroki-procesu](../../../.github/skills/analiza-zgloszenia/references/kroki-procesu.md): zatwierdzić listę pytań blokujących, przygotować szkic do controllingu w `pytania-do-zglaszajacego.md`, potem krok 5 (ryzyka) i krok 6 (plan, rekomendacja [analiza-danych](../../../.github/skills/analiza-danych/SKILL.md)).
+
+## 9. Pliki analizy
+- [progress.md](./progress.md)
+
+```
+
+- filePath: `c:\Users\teamsharq\Desktop\infoshare-silkycoders-sql-ai-4\docs\analizy\E02-sierpien\handoff.md`
+
+**Result:**
+
+```
+The following files were successfully edited:
+c:\Users\teamsharq\Desktop\infoshare-silkycoders-sql-ai-4\docs\analizy\E02-sierpien\handoff.md
+```
 </details></tool-use>
 
 _**Agent (copilot/claude-haiku-5.5)**_
 
-<tool-use data-tool-type="generic" data-tool-name="copilot_createFile"><details>
-<summary>Tool use: **copilot_createFile**</summary>
+<tool-use data-tool-type="write" data-tool-name="create_file"><details>
+<summary>Tool use: **create_file**</summary>
 
 Created `progress.md`
+
+**Input:**
+
+- content:
+
+```
+# Progress: Rozjazd sprzedaży netto sierpień 2026 (E02-sierpien)
+
+> Aktualizuj po każdym kroku. Statusy: `not-started`, `in-progress`, `completed`, `blocked`.
+
+## Status etapów
+| Etap | Status | Data | Uwagi |
+| --- | --- | --- | --- |
+| 0. Start (ID, folder) | completed | 2026-11-16 | ID `E02-sierpien`; istniejących handoffów nie czytano |
+| 1. Wczytanie zgłoszenia | completed | 2026-11-16 | Fakty ze zgłoszenia, słownika, kodu ETL i widoków |
+| 2. Sformułowanie problemu | completed | 2026-11-16 | Zaakceptowane przez analityka |
+| 3. Co wiemy / zakładamy / nie wiemy | completed | 2026-11-16 | Patrz handoff pkt 4 |
+| 4. Pytania | not-started | | Następny krok |
+| 5. Ryzyka i zależności | not-started | | Termin minął; zmiana definicji (zwroty) poza zakresem |
+| 6. Plan i rekomendacja | not-started | | Kandydat: analiza-danych |
+| 7. Zapis i domknięcie | not-started | | |
+
+## Rejestr znalezisk
+| Data | Etap | Znalezisko | Wynik / kwota | Dowód | Źródło (ID zapytania / plik) |
+| --- | --- | --- | --- | --- | --- |
+| 2026-11-16 | 1 | Controlling: sprzedaż netto sierpień 2026 | 2 608 664,46 zł | `[ZGŁ]` | inbox/E02- sierpien sie nie spina.md |
+| 2026-11-16 | 1 | Nasz raport: sprzedaż netto sierpień 2026 | 2 666 549,81 zł | `[ZGŁ]` | inbox/E02- sierpien sie nie spina.md |
+| 2026-11-16 | 1 | Różnica (nasz raport wyższy) | 57 885,35 zł | `[WNIOSEK]` | obliczenie z dwóch kwot powyżej |
+| 2026-11-16 | 1 | NetAmount = (Qty * UnitPrice - Discount) / 1.23, bez odjęcia zwrotów | n/d | `[KOD]` | RetailDW/Procedures/etl.LoadSales.sql |
+| 2026-11-16 | 1 | ETL bez deduplikacji; odrzucone wiersze liczone w LoadLog | n/d | `[KOD]` | RetailDW/Procedures/etl.LoadSales.sql |
+| 2026-11-16 | 1 | Słownik opisuje PostgreSQL, repo ma SQL Server | n/d | `[DOK]` + `[KOD]` | docs/slownik-metryk.md |
+| 2026-11-16 | 1 | Źródło raportu: SQL Server (`RetailDW/`) | n/d | `[ZGŁ]` (odpowiedź analityka) | pytanie w bramce kroku 1 |
+
+## Rejestr zapytań
+Pełny SQL w zapytania.sql (jeszcze nie utworzono). Tu tylko indeks.
+
+| ID | Etap / krok | Cel | Wynik w skrócie | Wykonano |
+| --- | --- | --- | --- | --- |
+| | | | | |
+
+## Dziennik kroków
+| Data | Krok | Co zrobiono | Decyzja analityka |
+| --- | --- | --- | --- |
+| 2026-11-16 | 0 | Ustalono ID `E02-sierpien`; pominięto istniejące handoffy (zgodnie z poleceniem) | Brak uwag |
+| 2026-11-16 | 1 | Wczytano zgłoszenie, słownik, zgłoszenie o zwrotach, kod ETL i widoki | Idziemy dalej; źródło: SQL Server |
+| 2026-11-16 | 2 | Sformułowano problem i kryterium ukończenia | Akceptacja |
+| 2026-11-16 | 3 | Podział: wiemy / zakładamy / nie wiemy; zapis handoffu i progressu | Do zatwierdzenia |
+
+## Notatki agenta
+- Różnica 57 885,35 zł może wynikać z przyczyn, które nie są jeszcze potwierdzone (patrz handoff pkt 7). Nie traktować jako wniosku.
+- Termin z zgłoszenia (19 wrz 2026) minął. Nowy termin do ustalenia z controllingiem.
+- Zmiana definicji z powiązanego zgłoszenia o zwrotach nie jest częścią tej analizy.
+
+```
+
+- filePath: `c:\Users\teamsharq\Desktop\infoshare-silkycoders-sql-ai-4\docs\analizy\E02-sierpien\progress.md`
+
+**Result:**
+
+```
+The following files were successfully edited:
+c:\Users\teamsharq\Desktop\infoshare-silkycoders-sql-ai-4\docs\analizy\E02-sierpien\progress.md
+```
 </details></tool-use>
 
 _**Agent (copilot/claude-haiku-5.5)**_
@@ -350,6 +1176,39 @@ _**Agent (copilot/claude-haiku-5.5)**_
 <summary>Tool use: **vscode_askQuestions**</summary>
 
 Analyzing your answers...
+
+**Input:**
+
+- questions:
+
+```
+[
+  {
+    "allowFreeformInput": true,
+    "header": "krok_3",
+    "options": [
+      {
+        "label": "Idziemy dalej (rekomendowane)",
+        "recommended": true
+      },
+      {
+        "label": "Przenieś pozycję między kolumnami (podaj którą)"
+      },
+      {
+        "label": "Wstrzymaj"
+      }
+    ],
+    "question": "Krok 3: czy zgadzasz się z podziałem na wiemy / zakładamy / nie wiemy?"
+  }
+]
+```
+
+
+**Result:**
+
+```
+{"answers":{"krok_3":{"selected":["Idziemy dalej (rekomendowane)"],"freeText":null,"skipped":false}}}
+```
 </details></tool-use>
 
 _**Agent (copilot/claude-haiku-5.5)**_
@@ -358,10 +1217,50 @@ Krok 3 zaakceptowany. Krok 4: pytania. Przygotowuję szkic wiadomości do contro
 
 _**Agent (copilot/claude-haiku-5.5)**_
 
-<tool-use data-tool-type="generic" data-tool-name="copilot_createFile"><details>
-<summary>Tool use: **copilot_createFile**</summary>
+<tool-use data-tool-type="write" data-tool-name="create_file"><details>
+<summary>Tool use: **create_file**</summary>
 
 Created `pytania-do-zglaszajacego.md`
+
+**Input:**
+
+- content:
+
+```
+# Pytania doprecyzowujące do zgłaszającego (szkic, niewysłany)
+
+> Zgłoszenie: E02- sierpien sie nie spina.md | Do: Tomasz Barski (controlling) | Przygotowano: 2026-11-16
+
+Dzień dobry Tomaszu,
+
+dziękuję za zgłoszenie. Żeby rzetelnie sprawdzić różnicę w sprzedaży netto za sierpień 2026, potrzebujemy kilku informacji:
+
+**Potrzebne do rozpoczęcia**
+1. Czy Wasza kwota 2 608 664,46 zł jest sprzedażą netto przed odjęciem zwrotów, czy po ich odjęciu? (po co: nasza definicja to sprzedaż przed zwrotami; różnica w ujęciu zwrotów zmienia wynik)
+2. Czy kwota obejmuje wszystkie kasy i cały system zamówień online, czy ich część? (po co: porównanie zakresu kanałów i sklepów)
+
+**Pomocne, niekrytyczne**
+3. Czy macie wykaz paragonów lub plik z kas i zamówień online za sierpień 2026? (po co: porównanie na poziomie transakcji, żeby wskazać konkretne pozycje różnicy)
+
+**Co już ustaliliśmy po naszej stronie**
+- Nasz raport pokazuje 2 666 549,81 zł. [ZGŁ]
+- Różnica wynosi 57 885,35 zł. [WNIOSEK]
+- Sprzedaż netto liczymy jako sprzedaż brutto z VAT podzieloną przez 1,23, bez odjęcia zwrotów. [KOD]
+
+**Termin**: poprzedni termin (19 września 2026) minął. Proponujemy nowy termin odpowiedzi na Wasze pytania. Prosimy o wskazanie, do kiedy potrzebujecie wyjaśnienia.
+
+Pozdrawiam
+
+```
+
+- filePath: `c:\Users\teamsharq\Desktop\infoshare-silkycoders-sql-ai-4\docs\analizy\E02-sierpien\pytania-do-zglaszajacego.md`
+
+**Result:**
+
+```
+The following files were successfully edited:
+c:\Users\teamsharq\Desktop\infoshare-silkycoders-sql-ai-4\docs\analizy\E02-sierpien\pytania-do-zglaszajacego.md
+```
 </details></tool-use>
 
 _**Agent (copilot/claude-haiku-5.5)**_
@@ -405,6 +1304,72 @@ _**Agent (copilot/claude-haiku-5.5)**_
 <summary>Tool use: **vscode_askQuestions**</summary>
 
 Analyzing your answers...
+
+**Input:**
+
+- questions:
+
+```
+[
+  {
+    "allowFreeformInput": true,
+    "header": "pytanie_filtry",
+    "options": [
+      {
+        "label": "Wszystkie kanały i sklepy"
+      },
+      {
+        "label": "Tylko STORE"
+      },
+      {
+        "label": "Tylko ONLINE"
+      },
+      {
+        "label": "Inny zakres (podaj)"
+      }
+    ],
+    "question": "Blokujące: jaki zakres ma nasz raport 2 666 549,81 zł (kanały, sklepy)?"
+  },
+  {
+    "allowFreeformInput": true,
+    "header": "pytanie_daty",
+    "options": [
+      {
+        "label": "Data sprzedaży (SalesDate / DateKey)",
+        "recommended": true
+      },
+      {
+        "label": "Inna data (podaj)"
+      }
+    ],
+    "question": "Blokujące: po jakiej dacie wybieramy sierpień w raporcie?"
+  },
+  {
+    "allowFreeformInput": true,
+    "header": "krok_4",
+    "options": [
+      {
+        "label": "Idziemy dalej, szkic do controllingu OK (rekomendowane)",
+        "recommended": true
+      },
+      {
+        "label": "Zmieniam pytania do controllingu (podaj uwagę)"
+      },
+      {
+        "label": "Wstrzymaj"
+      }
+    ],
+    "question": "Krok 4: czy akceptujesz szkic pytań do controllingu (plik w docs/analizy/E02-sierpien/)?"
+  }
+]
+```
+
+
+**Result:**
+
+```
+{"answers":{"pytanie_filtry":{"selected":["Wszystkie kanały i sklepy"],"freeText":null,"skipped":false},"pytanie_daty":{"selected":["Data sprzedaży (SalesDate / DateKey)"],"freeText":null,"skipped":false},"krok_4":{"selected":["Idziemy dalej, szkic do controllingu OK (rekomendowane)"],"freeText":null,"skipped":false}}}
+```
 </details></tool-use>
 
 _**Agent (copilot/claude-haiku-5.5)**_
@@ -478,6 +1443,42 @@ _**Agent (copilot/claude-haiku-5.5)**_
 <summary>Tool use: **vscode_askQuestions**</summary>
 
 Analyzing your answers...
+
+**Input:**
+
+- questions:
+
+```
+[
+  {
+    "allowFreeformInput": true,
+    "header": "krok_5",
+    "options": [
+      {
+        "label": "Akceptuj ryzyka, eskaluj termin (rekomendowane)",
+        "recommended": true
+      },
+      {
+        "label": "Eskaluj również konflikt definicji zwrotów"
+      },
+      {
+        "label": "Zmieniam listę ryzyk (podaj uwagę)"
+      },
+      {
+        "label": "Wstrzymaj"
+      }
+    ],
+    "question": "Krok 5: które ryzyka akceptujemy, które eskalujemy?"
+  }
+]
+```
+
+
+**Result:**
+
+```
+{"answers":{"krok_5":{"selected":["Akceptuj ryzyka, eskaluj termin (rekomendowane)"],"freeText":null,"skipped":false}}}
+```
 </details></tool-use>
 
 _**Agent (copilot/claude-haiku-5.5)**_
@@ -547,6 +1548,39 @@ _**Agent (copilot/claude-haiku-5.5)**_
 <summary>Tool use: **vscode_askQuestions**</summary>
 
 Analyzing your answers...
+
+**Input:**
+
+- questions:
+
+```
+[
+  {
+    "allowFreeformInput": true,
+    "header": "krok_6",
+    "options": [
+      {
+        "label": "Akceptuj plan, dalej analiza-danych (rekomendowane)",
+        "recommended": true
+      },
+      {
+        "label": "Zmieniam plan (podaj uwagę)"
+      },
+      {
+        "label": "Wstrzymaj"
+      }
+    ],
+    "question": "Krok 6: akceptujesz plan 7 etapów i rekomendowany skill analiza-danych?"
+  }
+]
+```
+
+
+**Result:**
+
+```
+{"answers":{"krok_6":{"selected":[],"freeText":null,"skipped":true}}}
+```
 </details></tool-use>
 
 _**Agent (copilot/claude-haiku-5.5)**_
@@ -558,5 +1592,75 @@ _**Agent (copilot/claude-haiku-5.5)**_
 <tool-use data-tool-type="generic" data-tool-name="vscode_askQuestions"><details>
 <summary>Tool use: **vscode_askQuestions**</summary>
 
-Asked a question (krok_6_ponownie)
+Analyzing your answers...
+
+**Input:**
+
+- questions:
+
+```
+[
+  {
+    "allowFreeformInput": true,
+    "header": "krok_6_ponownie",
+    "options": [
+      {
+        "label": "Akceptuj plan"
+      },
+      {
+        "label": "Zmień plan"
+      },
+      {
+        "label": "Wstrzymaj"
+      }
+    ],
+    "question": "Krok 6: akceptujesz plan?"
+  }
+]
+```
+
+
+**Result:**
+
+```
+{"answers":{"krok_6_ponownie":{"selected":[],"freeText":null,"skipped":true}}}
+```
 </details></tool-use>
+
+_**Agent (copilot/claude-haiku-5.5)**_
+
+Bramka kroku 6 nadal bez odpowiedzi, więc nie zakładam zgody. Zapisuję stan w progressie, żeby wznowienie było jednoznaczne.   
+
+_**Agent (copilot/claude-haiku-5.5)**_
+
+<tool-use data-tool-type="write" data-tool-name="textEditGroup"><details>
+<summary>Edit: **progress.md**</summary>
+
+@@ lines 14-14 @@
+
+```
+in-progress | 2026-11-16 | Plan 7 etapów zaproponowany; bramka bez odpowiedzi (2 próby), czeka na akceptację. Rekomendacja
+```
+</details></tool-use>
+
+_**Agent (copilot/claude-haiku-5.5)**_
+
+Analiza E02-sierpien jest w kroku 6 i czeka na Twoją akceptację planu. Bramka została pominięta dwa razy bez odpowiedzi, więc nie zakładam zgody.
+
+**Co zrobione (kroki 0–5):**
+- Problem: sprzedaż netto sierpnia 2026 w naszym raporcie to 2 666 549,81 zł, u controllingu 2 608 664,46 zł. Różnica to 57 885,35 zł [WNIOSEK].
+- Źródło raportu: SQL Server (`RetailDW`). Zakres: wszystkie kanały i sklepy, data sprzedaży.
+- Termin z 19 wrz 2026 minął. Wymaga eskalacji z controllingiem.
+- Zmiana definicji z powiązanego zgłoszenia o częściowych zwrotach jest poza zakresem.
+- Hipotezy przyczyn (duplikaty, odrzucone wiersze, ujęcie zwrotów, kanały) nie są potwierdzone. Nie sprawdzałem danych ani bazy.
+
+**Pliki:**
+- `docs/analizy/E02-sierpien/handoff.md`
+- `docs/analizy/E02-sierpien/progress.md`
+- `docs/analizy/E02-sierpien/pytania-do-zglaszajacego.md` (szkic, niewysłany)
+
+**Do ustalenia:** odpowiedź controllingu na dwa pytania blokujące: czy 2 608 664,46 zł jest przed czy po zwrotach oraz czy obejmuje wszystkie kasy i online. Bez tego nie da się zamknąć rozjazdu.
+
+**Plan (7 etapów):** potwierdzić definicję u controllingu, odtworzyć nasze 2 666 549,81 zł, sprawdzić duplikaty i odrzucone wiersze, rozbić po kanałach, policzyć zwroty, uzgodnić kwotę.
+
+**Rekomendacja:** następny skill to analiza-danych. Czy akceptujesz plan?

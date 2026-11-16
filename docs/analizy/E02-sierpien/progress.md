@@ -11,7 +11,7 @@
 | 3. Co wiemy / zakładamy / nie wiemy | completed | 2026-11-16 | Patrz handoff pkt 4 |
 | 4. Pytania | completed | 2026-11-16 | Szkic do controllingu zaakceptowany; zakres naszego raportu potwierdzony |
 | 5. Ryzyka i zależności | completed | 2026-11-16 | Termin eskalowany; reszta zaakceptowana |
-| 6. Plan i rekomendacja | not-started | | Kandydat: analiza-danych |
+| 6. Plan i rekomendacja | in-progress | 2026-11-16 | Plan 7 etapów zaproponowany; bramka bez odpowiedzi (2 próby), czeka na akceptację. Rekomendacja: analiza-danych |
 | 7. Zapis i domknięcie | not-started | | |
 
 ## Rejestr znalezisk
